@@ -230,6 +230,7 @@ class WarmStartEngine(GlobusComputeEngineBase, RepresentationMixin):
         label="WarmStartEngine",
         # NEW
         strategy=WarmStartStrategy(),
+        keepalive_time=300,
         max_workers_per_node=float("inf"),
         mem_per_worker=None,
         launch_cmd=None,
@@ -269,7 +270,9 @@ class WarmStartEngine(GlobusComputeEngineBase, RepresentationMixin):
         self.max_workers_per_node = max_workers_per_node
 
         # NEW
-        self.strategy = strategy
+        self.keepalive_time = keepalive_time
+        if isinstance(strategy, WarmStartStrategy):
+            self.strategy = WarmStartStrategy(keepalive_time=self.keepalive_time)
         self.cores_per_worker = cores_per_worker
         self.mem_per_worker = mem_per_worker
 

@@ -37,7 +37,7 @@ from globus_compute_endpoint.engines.warm_start.messages import (
     TaskCancel,
 )
 from globus_compute_endpoint.exception_handling import get_result_error_details
-from globus_compute_endpoint.strategies.simple import SimpleStrategy
+from globus_compute_endpoint.strategies.warm_start import WarmStartStrategy
 from globus_compute_sdk.serialize import ComputeSerializer
 from parsl.errors import ConfigurationError
 from parsl.executors.errors import BadMessage, ScalingFailed
@@ -229,7 +229,7 @@ class WarmStartEngine(GlobusComputeEngineBase, RepresentationMixin):
         self,
         label="WarmStartEngine",
         # NEW
-        strategy=SimpleStrategy(),
+        strategy=WarmStartStrategy(),
         max_workers_per_node=float("inf"),
         mem_per_worker=None,
         launch_cmd=None,

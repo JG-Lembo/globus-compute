@@ -303,7 +303,7 @@ class Interchange:
         self.last_core_hr_counter = 0
         if not launch_cmd:
             self.launch_cmd = (
-                "globus-compute-manager {debug} {max_workers} "
+                "globus-compute-manager-warm-start {debug} {max_workers} "
                 "-c {cores_per_worker} "
                 "--poll {poll_period} "
                 "--task_url={task_url} "

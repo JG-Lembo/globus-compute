@@ -92,8 +92,12 @@ setup(
             "=globus_compute_endpoint.engines.high_throughput.interchange:cli_run",
             "globus-compute-manager"
             "=globus_compute_endpoint.engines.high_throughput.manager:cli_run",
+            "globus-compute-manager-warm-start"
+            "=globus_compute_endpoint.engines.warm_start.manager:cli_run",
             "globus-compute-worker"
             "=globus_compute_endpoint.engines.high_throughput.worker:cli_run",
+            "globus-compute-worker-warm-start"
+            "=globus_compute_endpoint.engines.warm_start.worker:cli_run",
         ]
     },
     include_package_data=True,

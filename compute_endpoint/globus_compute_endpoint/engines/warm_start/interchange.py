@@ -111,6 +111,7 @@ class Interchange:
         container_type=None,
         container_cmd_options="",
         worker_mode=None,
+        worker_max_idletime=60,
         cold_routing_interval=10.0,
         scaling_enabled=True,
         client_address="127.0.0.1",
@@ -205,6 +206,7 @@ class Interchange:
         self.container_type = container_type
         self.container_cmd_options = container_cmd_options
         self.worker_mode = worker_mode
+        self.worker_max_idletime = worker_max_idletime
         self.cold_routing_interval = cold_routing_interval
 
         self.working_dir = working_dir
@@ -313,6 +315,7 @@ class Interchange:
                 "--hb_period={heartbeat_period} "
                 "--hb_threshold={heartbeat_threshold} "
                 "--worker_mode={worker_mode} "
+                "--worker_max_idletime={worker_max_idletime} "
                 "--container_cmd_options='{container_cmd_options}' "
                 "--scheduler_mode={scheduler_mode} "
                 "--worker_type={{worker_type}} "
@@ -387,6 +390,7 @@ class Interchange:
             heartbeat_threshold=self.heartbeat_threshold,
             poll_period=self.poll_period,
             worker_mode=self.worker_mode,
+            worker_max_idletime=self.worker_max_idletime,
             container_cmd_options=self.container_cmd_options,
             scheduler_mode=self.scheduler_mode,
             logdir=working_dir,

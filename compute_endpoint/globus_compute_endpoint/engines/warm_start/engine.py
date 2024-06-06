@@ -448,6 +448,7 @@ class WarmStartEngine(GlobusComputeEngineBase, RepresentationMixin):
                 "prefetch_capacity": self.prefetch_capacity,
                 "scheduler_mode": self.scheduler_mode,
                 "worker_mode": self.worker_mode,
+                "worker_max_idletime": self.keepalive_time,
                 "container_type": self.container_type,
                 "container_cmd_options": self.container_cmd_options,
                 "cold_routing_interval": self.cold_routing_interval,

@@ -840,6 +840,11 @@ def cli_run():
         ),
     )
     parser.add_argument(
+        "--worker_max_idletime",
+        default=60,
+        help="Max idletime before killing workers. Uses manager default unless set",
+    )
+    parser.add_argument(
         "--container_cmd_options",
         default="",
         help=("Container cmd options to add to container startup cmd"),
@@ -879,6 +884,7 @@ def cli_run():
             f"\n  max_workers: {args.max_workers}"
             f"\n  poll_period: {args.poll}"
             f"\n  worker_mode: {args.worker_mode}"
+            f"\n  worker_max_idletime: {args.worker_max_idletime}"
             f"\n  container_cmd_options: {args.container_cmd_options}"
             f"\n  scheduler_mode: {args.scheduler_mode}"
             f"\n  worker_type: {args.worker_type}"
@@ -901,6 +907,7 @@ def cli_run():
             logdir=args.logdir,
             debug=args.debug,
             worker_mode=args.worker_mode,
+            worker_max_idletime=int(args.worker_max_idletime),
             container_cmd_options=args.container_cmd_options,
             scheduler_mode=args.scheduler_mode,
             worker_type=args.worker_type,

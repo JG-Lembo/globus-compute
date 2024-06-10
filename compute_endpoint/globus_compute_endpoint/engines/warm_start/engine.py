@@ -753,7 +753,9 @@ class WarmStartEngine(GlobusComputeEngineBase, RepresentationMixin):
 
         return container_loc
 
-    def submit(self, task_id: str, packed_task: bytes) -> HTEXFuture:
+    def submit_with_function_uuid(
+        self, task_id: str, packed_task: bytes, function_uuid: str
+    ) -> HTEXFuture:
         """Submits a messagepacked.Task for execution
 
         Parameters
@@ -777,7 +779,7 @@ class WarmStartEngine(GlobusComputeEngineBase, RepresentationMixin):
         ser = serializer.serialize(
             (execute_task, [task_id, packed_task, self.endpoint_id], {})
         )
-        payload = Task(task_id, container_loc, ser).pack()
+        payload = Task(task_id, container_loc, function_uuid, ser).pack()
         assert self.outgoing_q  # Placate mypy
         self.outgoing_q.put(payload)
 

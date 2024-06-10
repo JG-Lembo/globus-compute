@@ -417,7 +417,9 @@ class EndpointInterchange:
                     continue
 
                 try:
-                    executor.submit(task_id=tid, packed_task=body)
+                    executor.submit_with_function_uuid(
+                        task_id=tid, packed_task=body, function_uuid=fid
+                    )
                     num_tasks_forwarded += 1  # Safe given GIL
 
                 except Exception as exc:

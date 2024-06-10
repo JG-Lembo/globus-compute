@@ -86,11 +86,17 @@ class Task(Message):
     type = MessageType.TASK
 
     def __init__(
-        self, task_id: str, container_id: str, task_buffer: str | bytes, raw_buffer=None
+        self,
+        task_id: str,
+        container_id: str,
+        function_uuid: str,
+        task_buffer: str | bytes,
+        raw_buffer=None,
     ):
         super().__init__()
         self.task_id = task_id
         self.container_id = container_id
+        self.function_uuid = function_uuid
         self.task_buffer = task_buffer
         self.raw_buffer = raw_buffer
 
@@ -105,7 +111,8 @@ class Task(Message):
             # all of this code is going to be eliminated soonish by
             # globus_compute_common.messagepack in part because of issues like this
             add_ons = (
-                f"TID={self.task_id};CID={self.container_id};"  # type: ignore
+                f"TID={self.task_id};CID={self.container_id};"
+                f"FID={self.function_uuid};"  # type: ignore
                 f"{self.task_buffer}"
             )
             self.raw_buffer = add_ons.encode("utf-8")
@@ -114,9 +121,13 @@ class Task(Message):
 
     @classmethod
     def unpack(cls, raw_buffer: bytes):
-        b_tid, b_cid, task_buf = raw_buffer.decode("utf-8").split(";", 2)
+        b_tid, b_cid, b_fid, task_buf = raw_buffer.decode("utf-8").split(";", 3)
         return cls(
-            b_tid[4:], b_cid[4:], task_buf.encode("utf-8"), raw_buffer=raw_buffer
+            b_tid[4:],
+            b_cid[4:],
+            b_fid[4:],
+            task_buf.encode("utf-8"),
+            raw_buffer=raw_buffer,
         )
 
     def set_local_container(self, container_id):

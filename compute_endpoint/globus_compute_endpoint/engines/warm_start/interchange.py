@@ -458,6 +458,7 @@ class Interchange:
                         "task_id": msg.task_id,
                         "container_id": msg.container_id,
                         "local_container": local_container,
+                        "function_uuid": msg.function_uuid,
                         "raw_buffer": raw_msg,
                     }
                 )

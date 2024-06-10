@@ -259,6 +259,10 @@ class Manager:
         self.poller.register(self.funcx_task_socket, zmq.POLLIN)
         self.task_worker_map: dict[str, Any] = {}
 
+        self.function_worker_map: dict[str, Any] = {}
+        self.task_function_map: dict[str, str] = {}
+        self.busy_workers: set = set()
+
         self.task_done_counter = 0
         self.task_finalization_lock = threading.Lock()
 
@@ -406,6 +410,7 @@ class Manager:
 
                             # Now that the worker is dead, remove it from worker map
                             self.worker_map.remove_worker(worker_id_raw)
+                            self.remove_worker_from_function_map(worker_id_raw)
                             raise TaskCancelled(worker_to_kill, self.uid)
                         except Exception as e:
                             log.exception(f"Raise exception, handling: {e}")
@@ -436,7 +441,11 @@ class Manager:
 
                 else:
                     tasks = [
-                        (rt["local_container"], Message.unpack(rt["raw_buffer"]))
+                        (
+                            rt["local_container"],
+                            Message.unpack(rt["raw_buffer"]),
+                            rt["function_uuid"],
+                        )
                         for rt in message
                     ]
 
@@ -447,7 +456,7 @@ class Manager:
                         )
                     )
 
-                    for task_type, task in tasks:
+                    for task_type, task, function_uuid in tasks:
                         log.debug(f"Task is of type: {task_type}")
 
                         if task_type not in self.task_queues:
@@ -457,6 +466,7 @@ class Manager:
                         self.task_queues[task_type].put(task)
                         self.outstanding_task_count[task_type] += 1
                         self.task_type_mapping[task.task_id] = task_type
+                        self.task_function_map[task.task_id] = function_uuid
                         log.debug(
                             "Got task: Outstanding task counts: {}".format(
                                 self.outstanding_task_count
@@ -631,10 +641,35 @@ class Manager:
         self.task_status_deltas.pop(task_id, None)
         self.outstanding_task_count[task_type] -= 1
         self.task_done_counter += 1
+        worker_id = self.task_worker_map[task_id]["worker_id"]
+        self.busy_workers.discard(worker_id)
+
+    def remove_worker_from_function_map(self, worker_id: str):
+        for function in self.function_worker_map:
+            if worker_id in self.function_worker_map[function]:
+                self.function_worker_map[function].remove(worker_id)
+            if len(self.function_worker_map[function]) == 0:
+                del self.function_worker_map[function]
 
     def send_task_to_worker(self, task_type):
         task = self.task_queues[task_type].get()
-        worker_id = self.worker_map.get_worker(task_type)
+
+        worker_id = ""
+        if task.task_id != "KILL":
+            function_uuid = self.task_function_map[task.task_id]
+            if function_uuid in self.function_worker_map:
+                for w_id in self.function_worker_map[function_uuid]:
+                    if w_id not in self.busy_workers:
+                        worker_id = w_id
+                        break
+
+        if worker_id == "":
+            worker_id = self.worker_map.get_worker(task_type)
+
+            # Remove workers from queue if they were selected directly
+            # via function-worker mapping
+            while worker_id in self.busy_workers:
+                worker_id = self.worker_map.get_worker(task_type)
 
         log.debug(f"Sending task {task.task_id} to {worker_id}")
         # TODO: Some duplication of work could be avoided here
@@ -658,6 +693,14 @@ class Manager:
                 "worker_id": worker_id,
                 "task_type": task_type,
             }
+            self.busy_workers.add(worker_id)
+            if function_uuid not in self.function_worker_map:
+                self.function_worker_map[function_uuid] = []
+            if worker_id not in self.function_worker_map[function_uuid]:
+                self.function_worker_map[function_uuid].append(worker_id)
+        else:
+            self.remove_worker_from_function_map(worker_id)
+            self.busy_workers.discard(worker_id)
         log.debug("Sending complete")
 
     def _status_report_loop(self, kill_event: threading.Event):
@@ -739,7 +782,9 @@ class Manager:
             )
         )
         self.worker_map.start_remove_worker(worker_type)
-        task = Task(task_id="KILL", container_id="RAW", task_buffer="KILL")
+        task = Task(
+            task_id="KILL", container_id="RAW", function_uuid="", task_buffer="KILL"
+        )
         self.task_queues[worker_type].put(task)
 
     def start(self):

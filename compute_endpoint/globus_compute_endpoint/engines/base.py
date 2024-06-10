@@ -226,6 +226,22 @@ class GlobusComputeEngineBase(ABC):
         self._setup_future_done_callback(task_id, future)
         return future
 
+    def submit_with_function_uuid(
+        self, task_id: str, packed_task: bytes, function_uuid: str
+    ) -> Future:
+        """Overload on submit function to add the function_uuid as a parameter.
+        Necessary for the Warm Start Engine.
+        If not implemented in subclass, should invoke submit without any changes.
+        Parameters
+        ----------
+        packed_task: messagepack bytes buffer
+        function_uuid: registered uuid of invoked function
+        Returns
+        -------
+        future
+        """
+        return self.submit(task_id, packed_task)
+
     @abstractmethod
     def shutdown(self, /, **kwargs) -> None:
         raise NotImplementedError()

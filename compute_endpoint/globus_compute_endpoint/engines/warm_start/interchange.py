@@ -22,6 +22,7 @@ from globus_compute_common.messagepack.message_types import TaskTransition
 from globus_compute_common.tasks import ActorName, TaskState
 from globus_compute_endpoint.engines.warm_start.interchange_task_dispatch import (  # noqa: E501
     naive_interchange_task_dispatch,
+    warm_start_task_dispatch,
 )
 from globus_compute_endpoint.engines.warm_start.messages import (
     BadCommand,
@@ -345,6 +346,7 @@ class Interchange:
         self.task_status_deltas: dict[str, list[TaskTransition]] = defaultdict(list)
         self._task_status_delta_lock = threading.Lock()
         self.container_switch_count: dict[bytes, int] = {}
+        self.function_to_manager_map: dict[str, list] = {}
 
     def load_config(self):
         """Load the config"""
@@ -545,6 +547,7 @@ class Interchange:
             ):
                 log.debug(f"[HOLD_BLOCK]: Sending hold to manager: {manager}")
                 self.hold_manager(manager)
+                self.remove_manager_from_function_map(manager)
 
     def hold_manager(self, manager):
         """Put manager on hold
@@ -556,6 +559,13 @@ class Interchange:
         """
         if manager in self._ready_manager_queue:
             self._ready_manager_queue[manager]["active"] = False
+
+    def remove_manager_from_function_map(self, manager):
+        for function in list(self.function_to_manager_map.keys()):
+            if manager in self.function_to_manager_map[function]:
+                self.function_to_manager_map[function].remove(manager)
+            if len(self.function_to_manager_map[function]) == 0:
+                del self.function_to_manager_map[function]
 
     def _status_report_loop(self, kill_event, status_report_queue: queue.Queue):
         log.info(f"Endpoint id: {self.endpoint_id}")
@@ -847,23 +857,32 @@ class Interchange:
                 _msg = "[MAIN] New managers count (total/interesting): {}/{}"
                 log.debug(_msg.format(*cur_manager_stat))
 
-            if time.time() - last_cold_routing_time > self.cold_routing_interval:
-                task_dispatch, dispatched_task = naive_interchange_task_dispatch(
+            if self.scheduler_mode == "hard":
+                task_dispatch, dispatched_task = warm_start_task_dispatch(
                     interesting_managers,
                     self.pending_task_queue,
                     self._ready_manager_queue,
-                    scheduler_mode=self.scheduler_mode,
-                    cold_routing=True,
+                    self.function_to_manager_map,
                 )
-                last_cold_routing_time = time.time()
+
             else:
-                task_dispatch, dispatched_task = naive_interchange_task_dispatch(
-                    interesting_managers,
-                    self.pending_task_queue,
-                    self._ready_manager_queue,
-                    scheduler_mode=self.scheduler_mode,
-                    cold_routing=False,
-                )
+                if time.time() - last_cold_routing_time > self.cold_routing_interval:
+                    task_dispatch, dispatched_task = naive_interchange_task_dispatch(
+                        interesting_managers,
+                        self.pending_task_queue,
+                        self._ready_manager_queue,
+                        scheduler_mode=self.scheduler_mode,
+                        cold_routing=True,
+                    )
+                    last_cold_routing_time = time.time()
+                else:
+                    task_dispatch, dispatched_task = naive_interchange_task_dispatch(
+                        interesting_managers,
+                        self.pending_task_queue,
+                        self._ready_manager_queue,
+                        scheduler_mode=self.scheduler_mode,
+                        cold_routing=False,
+                    )
 
             self.total_pending_task_count -= dispatched_task
 
@@ -914,6 +933,11 @@ class Interchange:
                                 actor=ActorName.INTERCHANGE,
                             )
                             task_deltas_to_merge[task_id].append(tt)
+                        function_uuid = task["function_uuid"]
+                        if function_uuid not in self.function_to_manager_map:
+                            self.function_to_manager_map[function_uuid] = []
+                        if manager not in self.function_to_manager_map[function_uuid]:
+                            self.function_to_manager_map[function_uuid].append(manager)
 
             if task_deltas_to_merge:
                 with self._task_status_delta_lock:
@@ -1028,6 +1052,7 @@ class Interchange:
                 self._ready_manager_queue.pop(manager, None)
                 if manager in interesting_managers:
                     interesting_managers.remove(manager)
+                self.remove_manager_from_function_map(manager)
             if bad_manager_msgs:
                 log.warning(f"Sending task failure reports of manager {manager!r}")
                 self.results_outgoing.send(dill.dumps(bad_manager_msgs))

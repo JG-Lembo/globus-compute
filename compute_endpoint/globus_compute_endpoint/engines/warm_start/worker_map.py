@@ -477,7 +477,6 @@ class WorkerMap:
         Raises queue.Empty if empty
         """
         worker = self.worker_queues[worker_type].get_nowait()
-        self.ready_worker_type_counts[worker_type] -= 1
         return worker
 
     def get_worker_counts(self):

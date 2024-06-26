@@ -645,7 +645,7 @@ class Manager:
         self.busy_workers.discard(worker_id)
 
     def remove_worker_from_function_map(self, worker_id: str):
-        for function in self.function_worker_map:
+        for function in list(self.function_worker_map.keys()):
             if worker_id in self.function_worker_map[function]:
                 self.function_worker_map[function].remove(worker_id)
             if len(self.function_worker_map[function]) == 0:
@@ -661,15 +661,18 @@ class Manager:
                 for w_id in self.function_worker_map[function_uuid]:
                     if w_id not in self.busy_workers:
                         worker_id = w_id
+                        if w_id in self.worker_map.worker_queues[task_type].queue:
+                            self.worker_map.worker_queues[task_type].queue.remove(w_id)
                         break
 
         if worker_id == "":
             worker_id = self.worker_map.get_worker(task_type)
-
             # Remove workers from queue if they were selected directly
             # via function-worker mapping
             while worker_id in self.busy_workers:
                 worker_id = self.worker_map.get_worker(task_type)
+
+        self.worker_map.ready_worker_type_counts[task_type] -= 1
 
         log.debug(f"Sending task {task.task_id} to {worker_id}")
         # TODO: Some duplication of work could be avoided here

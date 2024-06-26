@@ -5,6 +5,7 @@ import logging
 import queue
 import random
 
+from globus_compute_endpoint.engines.warm_start.messages import Task
 from globus_compute_endpoint.logging_config import ComputeLogger
 
 log: ComputeLogger = logging.getLogger(__name__)  # type: ignore
@@ -254,3 +255,208 @@ def get_tasks_soft(
         except queue.Empty:
             pass
     return tasks, tids
+
+
+def warm_start_task_dispatch(
+    interesting_managers: set[bytes],
+    pending_task_queue: dict[str, queue.Queue[dict]],
+    ready_manager_queue: dict[bytes, dict],
+    function_manager_map: dict[str, list],
+) -> tuple[dict[bytes, list], int]:
+    """
+    This is an initial task dispatching algorithm for interchange.
+    It returns a dictionary, whose key is manager, and the value is the list of tasks
+    to be sent to manager, and the total number of dispatched tasks.
+    """
+    task_dispatch: dict[bytes, list] = {}
+    dispatched_tasks = 0
+    dispatched_tasks += warm_start_dispatch(
+        task_dispatch,
+        interesting_managers,
+        pending_task_queue,
+        ready_manager_queue,
+        function_manager_map,
+    )
+    return task_dispatch, dispatched_tasks
+
+
+def warm_start_dispatch(
+    task_dispatch: dict[bytes, list],
+    interesting_managers: set[bytes],
+    pending_task_queue: dict[str, queue.Queue[dict]],
+    ready_manager_queue: dict[bytes, dict],
+    function_manager_map: dict[str, list],
+) -> int:
+    """
+    This is the core task dispatching algorithm for interchange.
+    The algorithm depends on the scheduler mode and which loop.
+    """
+    dispatched_tasks = 0
+    tids_by_manager: dict[bytes, dict[str, set[str]]] = {}
+
+    shuffled_managers = list(interesting_managers)
+    random.shuffle(shuffled_managers)
+
+    if interesting_managers:
+        for task_type in pending_task_queue:
+            total_free_capacity = managers_free_capacity(
+                interesting_managers, ready_manager_queue
+            )
+            while total_free_capacity > 0 and not pending_task_queue[task_type].empty():
+                task = pending_task_queue[task_type].get(block=False)
+                function_uuid = task["function_uuid"]
+                task_assigned = False
+                processed_managers = set()
+                if function_uuid in function_manager_map:
+                    for manager in function_manager_map[function_uuid]:
+                        if manager not in interesting_managers:
+                            continue
+                        mdata = ready_manager_queue[manager]
+                        task_assigned = assign_task_to_manager(
+                            task,
+                            task_type,
+                            task_dispatch,
+                            manager,
+                            mdata,
+                            interesting_managers,
+                            tids_by_manager,
+                        )
+                        if task_assigned:
+                            dispatched_tasks += 1
+                            total_free_capacity -= 1
+                            break
+                    if not task_assigned:
+                        for manager in function_manager_map[function_uuid]:
+                            if manager not in interesting_managers:
+                                continue
+                            mdata = ready_manager_queue[manager]
+                            task_assigned = assign_task_to_manager(
+                                task,
+                                "unused",
+                                task_dispatch,
+                                manager,
+                                mdata,
+                                interesting_managers,
+                                tids_by_manager,
+                            )
+                            if task_assigned:
+                                dispatched_tasks += 1
+                                total_free_capacity -= 1
+                                break
+                    processed_managers = set(function_manager_map[function_uuid])
+                if not task_assigned:
+                    for manager in set(shuffled_managers) - processed_managers:
+                        mdata = ready_manager_queue[manager]
+                        task_assigned = assign_task_to_manager(
+                            task,
+                            task_type,
+                            task_dispatch,
+                            manager,
+                            mdata,
+                            interesting_managers,
+                            tids_by_manager,
+                        )
+                        if task_assigned:
+                            dispatched_tasks += 1
+                            total_free_capacity -= 1
+                            break
+                if not task_assigned:
+                    for manager in set(shuffled_managers) - processed_managers:
+                        mdata = ready_manager_queue[manager]
+                        task_assigned = assign_task_to_manager(
+                            task,
+                            "unused",
+                            task_dispatch,
+                            manager,
+                            mdata,
+                            interesting_managers,
+                            tids_by_manager,
+                        )
+                        if task_assigned:
+                            dispatched_tasks += 1
+                            total_free_capacity -= 1
+                            break
+        if dispatched_tasks != 0:
+            for manager in interesting_managers:
+                if manager in task_dispatch:
+                    log.debug(
+                        "Manager %s got %s tasks from queue",
+                        manager,
+                        len(task_dispatch[manager]),
+                    )
+                    mdata = ready_manager_queue[manager]
+                    log.debug(f"The tasks on manager {manager} is {mdata['tasks']}")
+                    log.debug(
+                        "Assigned tasks %s to manager %s",
+                        tids_by_manager[manager],
+                        manager,
+                    )
+
+        for manager in list(interesting_managers):
+            mdata = ready_manager_queue[manager]
+            if mdata["free_capacity"]["total_workers"] > 0:
+                log.trace(
+                    "Manager %s still has free_capacity %s",
+                    manager,
+                    mdata["free_capacity"]["total_workers"],
+                )
+            else:
+                log.debug("Manager %s is now saturated", manager)
+                interesting_managers.remove(manager)
+
+    log.trace(
+        "The task dispatch of warm start dispatch is %s, in total %s tasks",
+        task_dispatch,
+        dispatched_tasks,
+    )
+    return dispatched_tasks
+
+
+def managers_free_capacity(
+    interesting_managers: set[bytes], ready_manager_queue: dict[bytes, dict]
+) -> int:
+    free_capacity: int = 0
+    for manager in list(interesting_managers):
+        mdata = ready_manager_queue[manager]
+        tasks_inflight = mdata["total_tasks"]
+        free_capacity += min(
+            mdata["free_capacity"]["total_workers"],
+            mdata["max_worker_count"] - tasks_inflight,
+        )
+    return free_capacity
+
+
+def assign_task_to_manager(
+    task: Task,
+    task_type: str,
+    task_dispatch: dict[bytes, list],
+    manager: bytes,
+    mdata: dict,
+    interesting_managers: set[bytes],
+    tids_by_manager: dict[bytes, dict[str, set[str]]],
+) -> bool:
+    manager_free_cap = mdata["free_capacity"]
+    tasks_inflight = mdata["total_tasks"]
+    real_capacity: int = min(
+        mdata["free_capacity"]["total_workers"],
+        mdata["max_worker_count"] - tasks_inflight,
+    )
+    if not (real_capacity > 0 and mdata["active"]):
+        interesting_managers.discard(manager)
+        return False
+    if (
+        task_type in manager_free_cap["free"]
+        and manager_free_cap["free"][task_type] > 0
+    ):
+        if manager not in task_dispatch:
+            task_dispatch[manager] = []
+        task_dispatch[manager].append(task)
+        if manager not in tids_by_manager:
+            tids_by_manager[manager] = collections.defaultdict(set)
+        tids_by_manager[manager][task_type].add(task["task_id"])
+        mdata["tasks"][task_type].add(task["task_id"])
+        mdata["total_tasks"] += 1
+        mdata["free_capacity"]["free"][task_type] -= 1
+        mdata["free_capacity"]["total_workers"] -= 1
+        return True
+    return False

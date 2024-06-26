@@ -645,7 +645,7 @@ class Manager:
         self.busy_workers.discard(worker_id)
 
     def remove_worker_from_function_map(self, worker_id: str):
-        for function in self.function_worker_map:
+        for function in list(self.function_worker_map.keys()):
             if worker_id in self.function_worker_map[function]:
                 self.function_worker_map[function].remove(worker_id)
             if len(self.function_worker_map[function]) == 0:
